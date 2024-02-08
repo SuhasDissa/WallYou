@@ -52,10 +52,10 @@ import com.bnyro.wallpaper.util.DownloadHelper
 import com.bnyro.wallpaper.util.ImageHelper
 import com.bnyro.wallpaper.util.Preferences
 import com.bnyro.wallpaper.util.WallpaperHelper
-import java.time.Instant
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 @Composable
 fun WallpaperPreview(
@@ -116,7 +116,7 @@ fun WallpaperPreview(
 
     Dialog(
         onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = remember { DialogProperties(usePlatformDefaultWidth = false) }
     ) {
         Box(
             modifier = Modifier
