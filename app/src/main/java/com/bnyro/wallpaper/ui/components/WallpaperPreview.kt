@@ -1,8 +1,5 @@
 package com.bnyro.wallpaper.ui.components
 
-import android.graphics.Bitmap
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,265 +9,255 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Wallpaper
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.palette.graphics.Palette
+import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
 import com.bnyro.wallpaper.R
-import com.bnyro.wallpaper.db.DatabaseHolder.Database
 import com.bnyro.wallpaper.db.obj.Wallpaper
-import com.bnyro.wallpaper.enums.WallpaperTarget
-import com.bnyro.wallpaper.ext.awaitQuery
-import com.bnyro.wallpaper.ext.query
-import com.bnyro.wallpaper.ui.components.dialogs.ImageFilterDialog
-import com.bnyro.wallpaper.ui.components.dialogs.ListDialog
-import com.bnyro.wallpaper.util.BitmapProcessor
-import com.bnyro.wallpaper.util.DownloadHelper
-import com.bnyro.wallpaper.util.ImageHelper
+import com.bnyro.wallpaper.enums.ResizeMethod
+import com.bnyro.wallpaper.ui.components.prefs.CheckboxPref
+import com.bnyro.wallpaper.ui.components.prefs.ListPreference
+import com.bnyro.wallpaper.ui.models.WallpaperHelperModel
 import com.bnyro.wallpaper.util.Preferences
-import com.bnyro.wallpaper.util.WallpaperHelper
-import java.time.Instant
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.bnyro.wallpaper.util.rememberZoomState
+import com.bnyro.wallpaper.util.zoomArea
+import com.bnyro.wallpaper.util.zoomImage
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WallpaperPreview(
     wallpaper: Wallpaper,
+    wallpaperHelperModel: WallpaperHelperModel = viewModel(factory = WallpaperHelperModel.Factory),
     onDismissRequest: () -> Unit
 ) {
-    val context = LocalContext.current
 
-    var originalBitmap: Bitmap? = remember { null }
-
-    var bitmap by remember {
-        mutableStateOf<Bitmap?>(null)
+    var showModeSelection by remember { mutableStateOf(false) }
+    var grayscaleEnabled by remember {
+        mutableStateOf(
+            Preferences.getBoolean(
+                Preferences.grayscaleKey,
+                false
+            )
+        )
     }
-
-    var showBottomOptions by remember {
-        mutableStateOf(true)
+    var invertEnabled by remember {
+        mutableStateOf(
+            Preferences.getBoolean(
+                Preferences.invertBitmapBySystemThemeKey,
+                false
+            )
+        )
     }
-
-    var showModeSelection by remember {
+    var invertPreview by remember {
         mutableStateOf(false)
     }
-
-    var showInfoDialog by remember {
-        mutableStateOf(false)
+    var contrastValue by remember {
+        mutableFloatStateOf(
+            Preferences.getFloat(
+                Preferences.contrastKey,
+                1f
+            )
+        )
     }
-
-    var showFilterDialog by remember {
-        mutableStateOf(false)
-    }
-
-    var liked by remember {
-        mutableStateOf(false)
-    }
-
-    var palette by remember {
-        mutableStateOf<Palette?>(null)
-    }
-
-    fun generateColorPalette() {
-        if (Preferences.getBoolean(Preferences.showColorPalette, true)) {
-            Palette.from(bitmap!!).generate { nP -> palette = nP }
-        }
-    }
-
-    LaunchedEffect(true) {
-        query {
-            wallpaper.imgSrc.let {
-                liked = Database.favoritesDao().exists(it)
-            }
-        }
-    }
-
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("image/png")
-    ) {
-        DownloadHelper.save(context, it, bitmap)
+    var blurRadius by remember {
+        mutableFloatStateOf(
+            Preferences.getFloat(
+                Preferences.blurKey,
+                0f
+            )
+        )
     }
 
     Dialog(
         onDismissRequest = onDismissRequest,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = remember { DialogProperties(usePlatformDefaultWidth = false) }
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-        ) {
-            if (bitmap != null) {
-                ZoomableImage(
-                    bitmap = bitmap,
-                    onDoubleClick = {
-                        showBottomOptions = !showBottomOptions
+        val bottomSheetState = rememberStandardBottomSheetState(initialValue = SheetValue.Expanded)
+        val sheetState = rememberBottomSheetScaffoldState(bottomSheetState = bottomSheetState)
+        BottomSheetScaffold(scaffoldState = sheetState, sheetContent = {
+            Column {
+                ImageFilterSlider(
+                    title = stringResource(R.string.blur),
+                    value = blurRadius,
+                    valueRange = 0f..25f,
+                    onValueChange = {
+                        blurRadius = it
                     },
-                    onLongPress = {
-                        showBottomOptions = !showBottomOptions
-                    }
-                )
-                AnimatedVisibility(
-                    visible = showBottomOptions,
-                    modifier = Modifier
-                        .padding(50.dp, 40.dp)
-                        .align(Alignment.BottomCenter)
-                ) {
-                    ElevatedCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(50.dp))
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp)
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                            ) {
-                                ButtonWithIcon(
-                                    icon = Icons.Default.Info,
-                                    tooltip = stringResource(R.string.info)
-                                ) {
-                                    showInfoDialog = true
-                                }
-
-                                ButtonWithIcon(
-                                    icon = Icons.Default.DarkMode,
-                                    tooltip = stringResource(R.string.filter)
-                                ) {
-                                    showFilterDialog = true
-                                }
-
-                                ButtonWithIcon(
-                                    icon = Icons.Default.Wallpaper,
-                                    tooltip = stringResource(R.string.set_wallpaper)
-                                ) {
-                                    if (bitmap == null) return@ButtonWithIcon
-                                    showModeSelection = true
-                                }
-
-                                ButtonWithIcon(
-                                    icon = Icons.Default.Download,
-                                    tooltip = stringResource(R.string.download)
-                                ) {
-                                    val prefix = wallpaper.title ?: wallpaper.category ?: wallpaper.author
-                                    val timeStamp = Instant.now().epochSecond
-                                    launcher.launch("$prefix-$timeStamp.png")
-                                }
-
-                                ButtonWithIcon(
-                                    icon = if (liked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                    tooltip = stringResource(R.string.add_to_favorites)
-                                ) {
-                                    liked = !liked
-                                    query {
-                                        if (!liked) {
-                                            Database.favoritesDao().delete(wallpaper)
-                                        } else {
-                                            Database.favoritesDao().insertAll(wallpaper)
-                                        }
-                                    }
-                                }
-                            }
-
-                            palette?.let {
-                                PaletteRow(it, Modifier.padding(0.dp, 15.dp))
-                            }
+                    onValueChangeFinished = {
+                        Preferences.edit {
+                            putFloat(Preferences.blurKey, blurRadius)
                         }
                     }
+                )
+                ImageFilterSlider(
+                    title = stringResource(R.string.contrast),
+                    value = contrastValue,
+                    valueRange = 0f..10f,
+                    onValueChange = {
+                        contrastValue = it
+                    },
+                    onValueChangeFinished = {
+                        Preferences.edit {
+                            putFloat(Preferences.contrastKey, contrastValue)
+                        }
+                    }
+                )
+                CheckboxPref(
+                    prefKey = Preferences.grayscaleKey,
+                    title = stringResource(R.string.grayscale)
+                ) {
+                    grayscaleEnabled = it
                 }
-            } else {
-                CircularProgressIndicator(
+                val resizeMethods = listOf(
+                    R.string.none,
+                    R.string.crop,
+                    R.string.zoom,
+                    R.string.fit_width,
+                    R.string.fit_height
+                )
+                ListPreference(
+                    prefKey = Preferences.resizeMethodKey,
+                    title = stringResource(R.string.resize_method),
+                    entries = resizeMethods.map { stringResource(it) },
+                    values = ResizeMethod.values().map { it.name },
+                    defaultValue = ResizeMethod.ZOOM.name
+                )
+                CheckboxPref(
+                    prefKey = Preferences.invertBitmapBySystemThemeKey,
+                    title = stringResource(R.string.invert_wallpaper_by_theme),
+                    summary = stringResource(R.string.invert_wallpaper_by_theme_summary)
+                ) {
+                    invertEnabled = it
+                    if (!it) invertPreview = false
+                }
+                AnimatedVisibility(visible = invertEnabled) {
+                    Row(
+                        modifier = Modifier.padding(start = 20.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Preview Invert Effect",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Checkbox(checked = invertPreview, onCheckedChange = {
+                            invertPreview = it
+                        })
+                    }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     modifier = Modifier
-                        .align(Alignment.Center)
+                        .padding(8.dp)
+                        .fillMaxWidth()
+                ) {
+                    Button(onClick = {
+                        grayscaleEnabled = false
+                        contrastValue = 1f
+                        blurRadius = 0f
+                        invertEnabled = false
+                        Preferences.edit {
+                            putFloat(Preferences.blurKey, 0f)
+                            putFloat(Preferences.contrastKey, 1f)
+                            putString(Preferences.resizeMethodKey, ResizeMethod.CROP.name)
+                            putBoolean(Preferences.grayscaleKey, false)
+                            putBoolean(Preferences.invertBitmapBySystemThemeKey, false)
+                        }
+                    }) {
+                        Text(text = stringResource(R.string.reset))
+                    }
+
+                    Button(onClick = {
+                        showModeSelection = true
+                    }) {
+                        Text(text = "Apply")
+                    }
+                }
+            }
+        }) { pV ->
+            val zoomState = rememberZoomState()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(pV)
+                    .background(Color.Black)
+                    .zoomArea(zoomState)
+            ) {
+                val lowRes = rememberAsyncImagePainter(model = wallpaper.thumb ?: wallpaper.imgSrc)
+                val colorMatrix = remember(grayscaleEnabled, invertPreview, contrastValue) {
+                    val sat = if (grayscaleEnabled) 0f else 1f
+                    val invSat = 1 - sat
+                    val R = 0.213f * invSat
+                    val G = 0.715f * invSat
+                    val B = 0.072f * invSat
+                    val invert = if (invertPreview) -1f else 1f
+                    val contrast = contrastValue * invert
+                    floatArrayOf(
+                        (R + sat) * contrast,
+                        G * contrast,
+                        B * contrast,
+                        0f,
+                        (255f - 255f * invert) / 2f,
+                        R * contrast,
+                        (G + sat) * contrast,
+                        B * contrast,
+                        0f,
+                        (255f - 255f * invert) / 2f,
+                        R * contrast,
+                        G * contrast,
+                        (B + sat) * contrast,
+                        0f,
+                        (255f - 255f * invert) / 2f,
+                        0f, 0f, 0f, 1f, 0f
+                    )
+                }
+
+                AsyncImage(
+                    model = wallpaper.imgSrc,
+                    contentDescription = "Wallpaper",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(radius = blurRadius.dp)
+                        .zoomImage(zoomState),
+                    placeholder = lowRes,
+                    colorFilter = ColorFilter.colorMatrix(ColorMatrix(colorMatrix))
                 )
             }
         }
-    }
 
-    ImageHelper.urlToBitmap(
-        rememberCoroutineScope(),
-        wallpaper.imgSrc,
-        context.applicationContext
-    ) {
-        originalBitmap = it
-        bitmap = BitmapProcessor.processBitmapByPrefs(it)
-        generateColorPalette()
     }
-
-    if (showInfoDialog) {
-        ImageInfoDialog(
-            wallpaper = wallpaper
-        ) {
-            showInfoDialog = false
-        }
-    }
-
-    if (showFilterDialog) {
-        ImageFilterDialog(
-            onDismissRequest = {
-                showFilterDialog = false
-            }
-        ) {
-            originalBitmap?.let {
-                bitmap = BitmapProcessor.processBitmapByPrefs(it)
-                generateColorPalette()
-            }
-        }
-    }
-
     if (showModeSelection) {
-        ListDialog(
-            title = stringResource(R.string.set_wallpaper),
-            items = listOf(
-                stringResource(R.string.both),
-                stringResource(R.string.home),
-                stringResource(R.string.lockscreen)
-            ),
-            onDismissRequest = {
-                showModeSelection = false
-            },
-            onClick = { index ->
-                if (Preferences.getBoolean(Preferences.autoAddToFavoritesKey, false)) {
-                    liked = true
-                    awaitQuery {
-                        Database.favoritesDao().insertAll(wallpaper)
-                    }
-                }
-                CoroutineScope(Dispatchers.IO).launch {
-                    WallpaperHelper.setWallpaper(
-                        context.applicationContext,
-                        bitmap!!,
-                        WallpaperTarget.values()[index]
-                    )
-                }
-                showModeSelection = false
-            }
+        WallpaperModeDialog(
+            wallpaper,
+            wallpaperHelperModel,
+            onDismissRequest = { showModeSelection = false },
+            applyFilter = true
         )
     }
 }
